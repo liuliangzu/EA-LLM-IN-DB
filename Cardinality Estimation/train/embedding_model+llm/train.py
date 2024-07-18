@@ -6,7 +6,7 @@ import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from model.llm_model import ScaleEmbedding,FilterEmbedding
+from model import ScaleEmbedding,FilterEmbedding
 from utils.model.dataset import load_dataset_features, make_feature_datasets, make_train_feature_dataloaders,load_query_workloads
 from utils.model.padding import features_padding
 from utils.model.qerror import get_qerror
