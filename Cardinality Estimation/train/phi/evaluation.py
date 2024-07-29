@@ -8,7 +8,7 @@ from peft import LoraConfig, get_peft_model,PeftModel
 
 from transformers import TrainingArguments, AutoModelForCausalLM, AutoTokenizer,TextStreamer
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-column_statistic_info = pd.read_csv('./data/column_min_max_vals.csv')
+column_statistic_info = pd.read_csv('/data/ce/column_min_max_vals.csv')
 
 prompt_template = (
         "You are a DBMS, you should use query's information to finish the Cardinal_estimation task, the table and column is:\n"
@@ -163,11 +163,11 @@ def evaluation_llm_stinfo(lora_path,data):
     print("llama2 total loss: {}\n".format(avg_acc_loss))
     return res
 
-def evaluation_phi(lora_path,data):
+def evaluation_phi(model, tokenizer,data):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_path = '/home/liuliangzu/phi_11_epoch/'
-    model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.bfloat16, device_map='auto')
-    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    # model_path = '/home/liuliangzu/phi_11_epoch/'
+    # model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.bfloat16, device_map='auto')
+    # tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
     #model = PeftModel.from_pretrained(model_llm, lora_path)
@@ -213,6 +213,66 @@ def evaluation_phi(lora_path,data):
         avg_acc_loss = avg_acc_loss + loss_i
     print("phi total loss: {}\n".format(avg_acc_loss))
     return res
+
+
+def evaluation_phi_main(model, tokenizer,data):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # model_path = '/home/liuliangzu/phi_11_epoch/'
+    # model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.bfloat16, device_map='auto')
+    # tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    # tokenizer.pad_token = tokenizer.eos_token
+    # tokenizer.padding_side = "right"
+    #model = PeftModel.from_pretrained(model_llm, lora_path)
+    # model.to(device)
+    avg_acc_loss = 0
+    # label = data["Cardinal_estimation_results"]
+    res = list()
+    # for i in range(len(data)):
+    for i in range(len(data)):
+        # sample_column = data["TableName_or_ColumnName"][i]
+        # sample_join = data["join_operater"][i]
+        # sample_predict = data["predicate"][i]
+        # prompt = prompt_startword
+        # column_list = str(sample_column).split(",")
+        # for j in range(len(column_list)):
+        #     column_name = column_list[j].split(" ")[1]
+        #     prompt = prompt + prompt_table.format(times=j, table_name=column_name)
+        # prompt = prompt + prompt_query_join_operator.format(join_operator = sample_join)
+        # predict_list = str(sample_predict).split(",")
+        # j = 0
+        # cnt = 1
+        # while j < len(predict_list) and len(predict_list) % 3 == 0:
+        #     cnt = cnt + 1
+        #     prompt = prompt + prompt_query_predict.format(times = cnt,column_name=predict_list[j],operator=predict_list[j+1],value=predict_list[j+2])
+        #     column_info = column_statistic_info[column_statistic_info["name"]==predict_list[j]]
+        #     prompt = prompt + promp_column_Cardinality.format(name=predict_list[j],maxv=column_info["max"].values[0],minv=column_info["min"].values[0],card=column_info["cardinality"].values[0],unique=column_info["num_unique_values"].values[0])
+        #     j = j+3
+        # if len(predict_list) == 1:
+        #     prompt = prompt + "no predicate for this query \n"
+        # prompt = prompt + prompt_answer
+        # input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
+        input_ids = torch.tensor(data[i]["input_ids"]).view(1,-1).to(device)
+        label = data[i]["labels"]
+        max_gen_len = 10
+        prompt_len = input_ids.shape[-1]     
+        generated_ids = model.generate(input_ids, max_length=prompt_len+max_gen_len, pad_token_id=tokenizer.eos_token_id, eos_token_id=tokenizer.eos_token_id)
+        generated_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+        '''prompt_len = input_ids.shape[-1]     
+        generated_ids = model.generate(input_ids, max_length=prompt_len+max_gen_len, pad_token_id=tokenizer.eos_token_id)
+        generated_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)'''
+        print(generated_text)
+        try:
+            last_line = int(generated_text.splitlines()[-1])            
+            loss_i = abs(last_line - label)
+        except:
+            last_line = generated_text.splitlines()[-1]
+            loss_i = abs(label)
+        print(last_line,label)
+        res.append(last_line)
+        avg_acc_loss = avg_acc_loss + loss_i
+    print("phi total loss: {}\n".format(avg_acc_loss))
+    return res
+
 
 def evaluation_llm_mlp(lora_path,data):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -390,4 +450,4 @@ def main():
     label = data["Cardinal_estimation_results"]
     record_res(res,label,"deepseek16B","synthetic")
 
-main()
+# main()

@@ -2,8 +2,10 @@ import copy
 import datasets
 import pandas as pd
 # example data preprocess
+import torch
 
-column_statistic_info = pd.read_csv('/home/liuliangzu/learnedcardinalities-master/data/column_min_max_vals.csv')
+# column_statistic_info = pd.read_csv('/home/liuliangzu/learnedcardinalities-master/data/column_min_max_vals.csv')
+column_statistic_info = pd.read_csv('/data/ce/column_min_max_vals.csv')
 
 prompt_template = (
         "You are a DBMS, you should use query to finish the Cardinal_estimation task, the table and column is:\n"
@@ -85,14 +87,14 @@ def get_preprocessed_arithmetic(dataset_config, tokenizer, split):
     return dataset
 
 # finetune query generate
-def get_preprocessed_query(dataset_config, tokenizer, splits):
+def get_preprocessed_query(dataset_config, tokenizer, splits, split_file_name='/home/liuliangzu/learnedcardinalities-master/hf_set.csv', other_token_idx_ls=None):
     if splits == "train":
         print("start train_data preprocess!")
     elif splits=="test":
         print("start test_data preprocess!")
     dataset = datasets.load_dataset(
         "csv", 
-        data_files={splits: '/home/liuliangzu/learnedcardinalities-master/hf_set.csv'}
+        data_files={splits: split_file_name}
         )[splits]
     '''
     prompt = (
@@ -125,22 +127,34 @@ def get_preprocessed_query(dataset_config, tokenizer, splits):
         return {
             "prompt": str(prompt),
             "output": str(sample["Cardinal_estimation_results"]),
+            "labels": sample["Cardinal_estimation_results"]
         }
     dataset = dataset.map(apply_prompt_template, remove_columns=list(dataset.features))
-    def tokenize_add_label(sample):
-        prompt = tokenizer.encode(tokenizer.bos_token + sample["prompt"], add_special_tokens=False)
-        answer = tokenizer.encode(sample["output"] +  tokenizer.eos_token, add_special_tokens=False)
+    def tokenize_add_label(data):
+        prompt = tokenizer.encode(tokenizer.bos_token + data["prompt"], add_special_tokens=False)
+        answer = tokenizer.encode(data["output"] +  tokenizer.eos_token, add_special_tokens=False)
 
-        sample = {
-            "input_ids": prompt + answer,
-            "attention_mask" : [1] * (len(prompt) + len(answer)),
-            "labels": [-100] * len(prompt) + answer,
-            }
+        # mask = torch.zeros((len(prompt) + len(answer) + 2, tokenizer.vocab_size), dtype=torch.bool)
+        # mask[-1-len(answer):-1,other_token_idx_ls] = True
+        if splits == "train":
+            sample = {
+                "input_ids": prompt + answer,
+                "attention_mask" : [1] * (len(prompt) + len(answer)),
+                "labels": [-100] * len(prompt) + answer,
+                "output_len": len(answer),
+                }
+        else:
+            sample = {
+                "input_ids": prompt,
+                "attention_mask" : [1] * (len(prompt) + len(answer)),
+                "labels": data["labels"],
+                "output_len": len(answer),
+                }
 
         return sample
 
-    dataset = dataset.map(tokenize_add_label, remove_columns=list(dataset.features))
-    return dataset
+    dataset0 = dataset.map(tokenize_add_label, remove_columns=list(dataset.features))
+    return dataset0
     
 #python -m llama_recipes.finetuning        --use_peft --peft_method lora --quantization --use_fp16 --model_name /home/liuliangzu/llama2-hf/ --dataset custom_dataset --custom_dataset.file "./dataset_prepare.py:get_preprocessed_query" --output_dir /home/liuliangzu/output_query_2/ --batch_size_training 1 --num_epochs 1 --use_fast_kernels
 #get_preprocessed_arithmetic(None,tokenizer=None,split="train")
