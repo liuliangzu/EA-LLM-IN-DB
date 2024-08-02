@@ -27,6 +27,7 @@ from PGUtils import pgrunner
 from ImportantConfig import Config
 
 config = Config()
+config.usegpu=True
 
 device = torch.device("cuda" if torch.cuda.is_available() and config.usegpu==1 else "cpu")
 

@@ -25,6 +25,8 @@ LatencyDict = {}
 selectivityDict = {}
 LatencyRecordFileHandle = None
 config  = Config()
+config.userName = "wuyinjun"
+config.password="12345678"
 
 class PGGRunner:
     def __init__(self,dbname = '',user = '',password = '',host = '',port = '',isCostTraining = True,latencyRecord = True,latencyRecordFile = "RecordFile.json"):

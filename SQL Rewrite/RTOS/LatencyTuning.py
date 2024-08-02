@@ -28,12 +28,18 @@ from torch.nn import init
 from ImportantConfig import Config
 
 config = Config()
+config.userName = "wuyinjun"
+config.password="12345678"
+config.usegpu=True
+
 
 device = torch.device("cuda" if torch.cuda.is_available() and config.usegpu==1 else "cpu")
-
-
-with open(config.schemaFile, "r") as f:
+import os
+with open(os.path.join(os.path.dirname(__file__),config.schemaFile), "r") as f:
     createSchema = "".join(f.readlines())
+
+config.JOBDir=os.path.join(os.path.dirname(__file__),"workload/job-test")
+config.sytheticDir=os.path.join(os.path.dirname(__file__),"workload/job-test")
 
 db_info = DB(createSchema)
 

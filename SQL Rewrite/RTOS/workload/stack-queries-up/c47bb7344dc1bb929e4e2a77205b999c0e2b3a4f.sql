@@ -1,0 +1,1 @@
+SELECT COUNT(*) FROM tag AS t, site AS s, question AS q, tag_question AS tq WHERE t.site_id = s.site_id AND q.site_id = s.site_id AND tq.site_id = s.site_id AND tq.question_id = q.id AND tq.tag_id = t.id AND s.site_name IN ('rpg') AND t.name IN ('dnd-3.5e', 'dnd-4e', 'dnd-5e', 'spells') AND q.score >= 1 AND q.score <= 10
