@@ -13,22 +13,24 @@ card_join={
     't.id=mi.movie_id':14835720
 }
 # mi_idx.movie_id,mk.movie_id,ci.movie_id,mc.movie_id
-column_statistic_info = pd.read_csv('/home/liuliangzu/learnedcardinalities-master/data/column_min_max_vals.csv',delimiter=',')
+column_statistic_info = pd.read_csv('/mnt/bd/llama-finetune/llama3/llama3_test/learnedcardinalities/data/column_min_max_vals.csv',delimiter=',')
 
 prompt_template = (
         "You are a DBMS, you should use query to finish the Cardinal_estimation task, the table and column is:\n"
         "{table}\n---the join_operater is:\n{operater}\n---the predicate is:\n{predicate}\n---\nAnswer:\n"
     )
-
+prompt_samples = (
+    "This query is sampled and {x} samples out of 1000 tuples are found to match the query conditions "
+)
 prompt_startword = (
     "You are a DBMS, you should use query to finish the Cardinal_estimation task, now the information will be listed: "
 )
 prompt_table = (
-    "the number {times} table name : {table_name} and called {table_name_sx} and the table {table_name} has {column_num} columns "
+    "the number {times} table name : {table_name} and called {table_name_sx} "
 )
 
 prompt_query_predict = (
-    "the number {times} query predict will be listed:  column is : {column_name},  predict operator is : {operator},  predict value is : {value} , and the cardinality of this predict is {card}  "
+    "the number {times} query predict will be listed:  column is : {column_name},  predicate operator is : {operator},  predicate value is : {value} , and the cardinality of this predicate is {card}  "
 )
 prompt_query_join_operator = (
     "join column is : {column_name} and {column_name_2} , {column_name} is : {key_1} and index {index_1} , {column_name_2} is : {key_2} and index {index_2}, and the cardinality of this join is {card} "
@@ -43,7 +45,7 @@ promp_hist = (
     ",histogram_bounds: {hist}"
 )
 prompt_pg_ce = (
-    "the postgresql optimizer guess the query Cardinal_estimation is {pg_ce}  "
+    "The postgresql database gives an estimate of {pg_ce} for this query and other deep learning estimators give an estimate of {pr_ce}"
 )
 prompt_answer = (
     "---Answer is:  "
@@ -223,20 +225,34 @@ def generate_Dataset(splits):
     a = a.drop(columns=['index'])
     a = a[a['join_operater'].isnull()]
     a.to_csv('./synthetic_onetable.csv',index=False)'''
-    conn = p2.connect(
+    file_path = './output_synthetic.sql'
+    with open(file_path, 'r') as f:
+        lines_sql = f.readlines()
+    query_workload = [lines.split('||')[0] for lines in lines_sql]
+    pg_ce = [lines.split('||')[2] for lines in lines_sql]
+    pr_ce = [lines.split('||')[3].replace('\n','') for lines in lines_sql]
+    conn_totaltable = p2.connect(
         host="localhost",
-        database="imdbload",
-        user="postgres",
-        password="postgres",
+        database="template1",
+        user="pilotscope",
+        password="pilotscope",
         port=5432
     )
-
-    cur = conn.cursor()
-    dataset = datasets.load_dataset(
-        "csv", 
-        data_files={splits: './res_with_api/scale_.csv'}
-        )[splits]
-    print("loaded")
+    conn_sample_info = p2.connect(
+        host="localhost",
+        database="sample_imdb",
+        user="pilotscope",
+        password="pilotscope",
+        port=5432
+    )
+    cur_all = conn_totaltable.cursor()
+    cur_sample = conn_sample_info.cursor()
+    dataset = pd.read_csv('/mnt/bd/llama-finetune/llama3/llama3_test/learnedcardinalities/workloads/synthetic.csv',delimiter='#',header = None,names=['TableName_or_ColumnName','join_operater','predicate','Cardinal_estimation_results','index'])
+    dataset["query"] = query_workload
+    dataset["pg_ce"] = pg_ce
+    dataset["pr_ce"] = pr_ce
+    print("loaded \n")
+    print(dataset.head(5))
     dist = {
         't':3,
         'mc':4,
@@ -245,17 +261,14 @@ def generate_Dataset(splits):
         'mi_idx':3,
         'mk':3
     }
-    global cnt
-    cnt = 0
     def apply_prompt_template(sample):
-        global cnt
         prompt = ""
         input_dict = {}
         column_list = str(sample["TableName_or_ColumnName"]).split(",")
         for i in range(len(column_list)):
             column_name_sx = column_list[i].split(" ")[1]
             column_name = column_list[i].split(" ")[0]
-            input_dict["table_{} information".format(i)] = prompt_table.format(times=i, table_name=column_name, table_name_sx = column_name_sx, column_num =dist[column_name_sx])
+            input_dict["table_{} information".format(i)] = prompt_table.format(times=i, table_name=column_name, table_name_sx = column_name_sx)
         join_list = str(sample["join_operater"]).split(",")
         column_set = list()
         for i in range(len(join_list)):
@@ -300,8 +313,8 @@ def generate_Dataset(splits):
                         column_table = table
                         break
                 query = f"SELECT COUNT(*) FROM {column_table} WHERE {column} {operator} {value};"
-                cur.execute(query)
-                result = cur.fetchone()
+                cur_all.execute(query)
+                result = cur_all.fetchone()
             input_dict["filter_{} information".format(j)] = prompt_query_predict.format(times = j,column_name=predict_list[i],operator=predict_list[i+1],value=predict_list[i+2],card = result[0])
             column_set.append(predict_list[i])
             #column_info = column_statistic_info[column_statistic_info["name"]==predict_list[i]]
@@ -321,13 +334,18 @@ def generate_Dataset(splits):
                     input_dict["column_{} information".format(i)] = promp_column_Cardinality.format(name=column_set[i],maxv=column_info["max"].values[0],minv=column_info["min"].values[0],card=column_info["cardinality"].values[0],unique=column_info["num_unique_values"].values[0]) + promp_most.format(mcv=column_info["most_common_values"].values[0],mcf=column_info["most_common_freq"].values[0])
             else:
                 input_dict["column_{} information".format(i)] = promp_column_Cardinality.format(name=column_set[i],maxv=column_info["max"].values[0],minv=column_info["min"].values[0],card=column_info["cardinality"].values[0],unique=column_info["num_unique_values"].values[0])
+        query_sql = sample['query']
+        cur_sample.execute(query_sql)
+        result = cur_sample.fetchone()
+        input_dict["sample information"] = prompt_samples.format(x=result[0])
+        input_dict["other optimizer information"] = prompt_pg_ce.format(pg_ce = sample['pg_ce'],pr_ce=sample['pr_ce'])
         input_dict["instruction information"] = "You should give a number as the answer of all the condition: "
         return {
             "instruction": str(prompt_startword),
             "input": str(input_dict),
             "output": str(sample["Cardinal_estimation_results"]),
         }
-    dataset = dataset.map(apply_prompt_template, remove_columns=list(dataset.features))
+    dataset = dataset.apply(apply_prompt_template,axis=1)
     print(dataset[0])
     '''def tokenize_add_label(sample):
         prompt = tokenizer.encode(tokenizer.bos_token + sample["prompt"], add_special_tokens=False)
@@ -345,14 +363,132 @@ def generate_Dataset(splits):
     save_json = []
     for i in range(len(dataset)):
         save_json.append(dataset[i])
-    json_file_path = './scale_prc.json'
+    json_file_path = './synthetic.json'
     json_file = open(json_file_path, mode='w')
     json.dump(save_json,json_file, indent=4)
-    cur.close()
-    conn.close()
+    cur_all.close()
+    conn_totaltable.close()
+    cur_sample.close()
+    conn_sample_info.close()
     return dataset
 
-generate_Dataset('train')
+import re
+def extract_columns_from_query(query):
+    column_pattern = re.compile(r'\b(\w+\.\w+)\b')
+    columns = set()
+    for match in column_pattern.finditer(query):
+        columns.add(match.group(1))
+    
+    return columns
+
+def generate_Dataset_without_p2(splits):
+    column_statistic_info = pd.read_csv('/mnt/bd/llama-finetune/llama3/llama3_test/learnedcardinalities/data/column_min_max_vals.csv',delimiter=',')
+    file_path = './output_train_x_set.sql'
+    with open(file_path, 'r') as f:
+        lines_sql = f.readlines()
+    query_workload = [lines.split('||')[0] for lines in lines_sql]
+    truth = [lines.split('||')[1] for lines in lines_sql]
+    pg_ce = [lines.split('||')[2] for lines in lines_sql]
+    pr_ce = [lines.split('||')[3].replace('\n','') for lines in lines_sql]
+    dataset = []
+    for i in range(len(query_workload)):
+        query = query_workload[i]
+        input_json = dict()
+        columns = extract_columns_from_query(query)
+        input_json['query'] = query
+        #print(columns)
+        cnt_col = 0
+        for column in columns:
+            column = column.replace('imdb_t','t').replace('imdb_mii','mi_idx').replace('imdb_mi','mi').replace('imdb_ci','ci').replace('imdb_mc','mc').replace('imdb_mk','mk')
+            cnt_col += 1
+            column_info = column_statistic_info[column_statistic_info["name"]==column]
+            #print(column,column_info)
+            #input_dict["column_{} information".format(i)] = promp_column_Cardinality.format(name=column_set[i],maxv=column_info["max"].values[0],minv=column_info["min"].values[0],card=column_info["cardinality"].values[0],unique=column_info["num_unique_values"].values[0])
+            if pd.isna(column_info["most_common_values"].values[0]) ==False:
+                if pd.isna(column_info["histogram_bounds"].values[0]) == False:
+                    input_json["column_{} information".format(cnt_col)] = promp_column_Cardinality.format(name=column,maxv=column_info["max"].values[0],minv=column_info["min"].values[0],card=column_info["cardinality"].values[0],unique=column_info["num_unique_values"].values[0]) + promp_most.format(mcv=column_info["most_common_values"].values[0],mcf=column_info["most_common_freq"].values[0])+promp_hist.format(hist=column_info["histogram_bounds"].values[0])
+                else:
+                    input_json["column_{} information".format(cnt_col)] = promp_column_Cardinality.format(name=column,maxv=column_info["max"].values[0],minv=column_info["min"].values[0],card=column_info["cardinality"].values[0],unique=column_info["num_unique_values"].values[0]) + promp_most.format(mcv=column_info["most_common_values"].values[0],mcf=column_info["most_common_freq"].values[0])
+            else:
+                input_json["column_{} information".format(cnt_col)] = promp_column_Cardinality.format(name=column,maxv=column_info["max"].values[0],minv=column_info["min"].values[0],card=column_info["cardinality"].values[0],unique=column_info["num_unique_values"].values[0])
+        input_json["other optimizer information"] = prompt_pg_ce.format(pg_ce = pg_ce[i],pr_ce=pr_ce[i])
+        input_json["instruction information"] = "You should give a number as the answer of all the condition: "
+        dataset.append({
+            "instruction":prompt_startword,
+            "input":str(input_json),
+            "output":truth[i]
+        })
+    save_json = []
+    for i in range(len(dataset)):
+        save_json.append(dataset[i])
+    json_file_path = './train_x_set.json'
+    json_file = open(json_file_path, mode='w')
+    json.dump(save_json,json_file, indent=4)
+    return dataset
+
+
+def generate_Dataset_with_insert_and_update(splits):
+    column_statistic_info = pd.read_csv('/mnt/bd/llama-finetune/pilotscope/stats/data_info/column_min_max_values.csv',delimiter=',')
+    file_path ='/mnt/bd/llama-finetune/llama3/ALECE/data/STATS/workload/upd_heavy/workload.sql'
+    with open(file_path, 'r') as f:
+        lines_sql = f.readlines()
+    query_workload = []
+    pg_ce = []
+    truth = []
+    for line in lines_sql:
+        query_type = line.split(": ")
+        if len(query_type) < 2:
+            continue
+        if query_type[0].count("train"):
+            query_workload.append(query_type[0].split('||')[0])
+            if query_type[0].count("train_sub_query") == 0:
+                pg_ce.append(query_type[1].split('||')[2])
+                truth.append(query_type[1].split('||')[3])
+            else:
+                pg_ce.append(query_type[1].split('||')[1])
+                truth.append(query_type[1].split('||')[2])
+    #pr_ce = [lines.split('||')[2] for lines in lines_r]
+    with open('/mnt/bd/llama-finetune/llama3/ALECE/exp/STATS/e2e/ALECE_STATS_upd_upd.txt','r') as file:
+        pr_ce = file.readlines()
+    pr_ce = [round(float(res.replace('\n','')),2) for res in pr_ce]
+    print(len(pr_ce),len(truth))
+    dataset = []
+    for i in range(len(query_workload)):
+        query = query_workload[i]
+        input_json = dict()
+        columns = extract_columns_from_query(query)
+        input_json['query'] = query
+        #print(columns)
+        cnt_col = 0
+        for column in columns:
+            column = column.replace('imdb_t','t').replace('imdb_mii','mi_idx').replace('imdb_mi','mi').replace('imdb_ci','ci').replace('imdb_mc','mc').replace('imdb_mk','mk')
+            cnt_col += 1
+            column_info = column_statistic_info[column_statistic_info["name"]==column]
+            #print(column,column_info)
+            #input_dict["column_{} information".format(i)] = promp_column_Cardinality.format(name=column_set[i],maxv=column_info["max"].values[0],minv=column_info["min"].values[0],card=column_info["cardinality"].values[0],unique=column_info["num_unique_values"].values[0])
+            if pd.isna(column_info["most_common_values"].values[0]) ==False:
+                if pd.isna(column_info["histogram_bounds"].values[0]) == False:
+                    input_json["column_{} information".format(cnt_col)] = promp_column_Cardinality.format(name=column,maxv=column_info["max"].values[0],minv=column_info["min"].values[0],card=column_info["cardinality"].values[0],unique=column_info["num_unique_values"].values[0]) + promp_most.format(mcv=column_info["most_common_values"].values[0],mcf=column_info["most_common_freq"].values[0])+promp_hist.format(hist=column_info["histogram_bounds"].values[0])
+                else:
+                    input_json["column_{} information".format(cnt_col)] = promp_column_Cardinality.format(name=column,maxv=column_info["max"].values[0],minv=column_info["min"].values[0],card=column_info["cardinality"].values[0],unique=column_info["num_unique_values"].values[0]) + promp_most.format(mcv=column_info["most_common_values"].values[0],mcf=column_info["most_common_freq"].values[0])
+            else:
+                input_json["column_{} information".format(cnt_col)] = promp_column_Cardinality.format(name=column,maxv=column_info["max"].values[0],minv=column_info["min"].values[0],card=column_info["cardinality"].values[0],unique=column_info["num_unique_values"].values[0])
+        input_json["other optimizer information"] = prompt_pg_ce.format(pg_ce = pg_ce[i],pr_ce=pr_ce[i])
+        input_json["instruction information"] = "You should give a number as the answer of all the condition: "
+        dataset.append({
+            "instruction":prompt_startword,
+            "input":str(input_json),
+            "output":truth[i]
+        })
+    save_json = []
+    for i in range(len(dataset)):
+        save_json.append(dataset[i])
+    json_file_path = './upd_x_set.json'
+    json_file = open(json_file_path, mode='w')
+    json.dump(save_json,json_file, indent=4)
+    return dataset
+
+generate_Dataset_with_insert_and_update('train')
 #python -m llama_recipes.finetuning        --use_peft --peft_method lora --quantization --use_fp16 --model_name /home/liuliangzu/llama2-hf/ --dataset custom_dataset --custom_dataset.file "./dataset_prepare.py:get_preprocessed_query" --output_dir /home/liuliangzu/output_query_2/ --batch_size_training 1 --num_epochs 1 --use_fast_kernels
 #get_preprocessed_arithmetic(None,tokenizer=None,split="train")
 #data_set_path = './data/train.csv'
