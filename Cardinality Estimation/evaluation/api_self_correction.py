@@ -18,23 +18,6 @@ with open('/mnt/bd/llama-finetune/pilotscope/stats-icl.json', 'r', encoding='utf
 with open('/mnt/bd/llama-finetune/llama3/PRICE/genome_test.txt','r') as file:
     lines_sql = file.readlines()
 pr_res = imdb
-'''file_path ='/mnt/bd/llama-finetune/llama3/ALECE/data/STATS/workload/u_heavy/workload.sql'
-with open(file_path, 'r') as f:
-    lines_sql = f.readlines()
-lines_r = []
-pg_ce=[]
-truth = []
-for line in lines_sql:
-    query_type = line.split(": ")
-    if len(query_type) < 2:
-        continue
-    if query_type[0].count("train"):
-        if query_type[0].count("train_sub_query") == 0:
-            pg_ce.append(query_type[1].split('||')[2])
-            truth.append(query_type[1].split('||')[3])
-        else:
-            pg_ce.append(query_type[1].split('||')[1])
-            truth.append(query_type[1].split('||')[2])'''
 #pr_res = get_ndv_predict()
 results_list = []
 chat = 0
@@ -104,20 +87,3 @@ for i in range(len(data)):# ,just give a number as the answer and don't say anyt
         print(llm_res,data[i]['output'])
 result_dataframe = pd.DataFrame(results_list,columns=["preds","true"])
 result_dataframe.to_csv('./api_icl_stats_y_llama3.csv',index=False)
-'''for i in range(len(data)):# ,just give a number as the answer and don't say anything else
-    response = client.chat.completions.create(
-        model='llama3',
-        messages=[
-            {"role": "system", "content": str(data[i]['instruction'])},
-            {"role": "user", "content": data[i]['input']},
-        ],
-        max_tokens=20,
-        temperature=0.7,
-        stream=False
-    )
-    
-    results_list.append([response.choices[0].message.content,data[i]['output']])
-    
-    print(results_list[i])
-result_dataframe = pd.DataFrame(results_list,columns=["preds","true"])
-result_dataframe.to_csv('./api_price+llm3_job-light.csv',index=False)'''
