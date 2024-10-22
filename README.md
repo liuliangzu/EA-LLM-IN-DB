@@ -2,6 +2,7 @@
 ## Data
 Here we have provided the relevant datasets for prefinetune, finetune, and test.
 ### Prefinetune
+The prefinetune dataset used in our experiments is also updated in the /workload/prefinetune path, and the source of the dataset is explained in detail in the paper
 ### Finetune
 The dataset sql is listed at /workload/finetune/ , we provide imdb,stats,genome,ergastf1 workloads.sql for finetune.
 Each row of data has three components: the query, the database prediction, and the true result
